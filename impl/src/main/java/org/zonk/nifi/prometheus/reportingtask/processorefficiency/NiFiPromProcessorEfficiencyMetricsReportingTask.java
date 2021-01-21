@@ -11,11 +11,17 @@
  * TODO: write custom validators for configuration properties (it should be noted that the configuration properties MUST
  * be validated and verified at schedule/run time, because some configuration property values refer to elements that can
  * be modified outside of the management aspects of this ReportingTask.
+ * 
+ * This code is built against Java-11 using Maven-3.6.3
  */
 
 package org.zonk.nifi.prometheus.reportingtask.processorefficiency;
 
-import java.io.*;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.UnsupportedEncodingException;
 import java.lang.management.ManagementFactory;
 import java.lang.management.OperatingSystemMXBean;
 import java.net.InetAddress;
@@ -30,7 +36,11 @@ import java.security.UnrecoverableKeyException;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -75,19 +85,17 @@ import org.apache.nifi.ssl.SSLContextService;
 
 @Tags({"reporting", "processor metrics", "prometheus", "grafana"})
 @Restricted // Writes to socket, and presume this needs to be tagged as restricted.
-@CapabilityDescription("Report processor metrics to Prometheus' push_gateway (version-2)." +
+@CapabilityDescription("Report processor metrics to Prometheus' push_gateway et al." +
      " First and foremost, as processor names are reported as metric label values, the NiFi" +
      " data-flow administrator MUST acknowledge that processor names, as coupled to metric" +
-     " flow values, are set correctly. What processors to report is determined by" +
-     " the processor type filter (such as PostOrderup) and the processor name regex filter." +
-     " The entire canvas, starting from root (default), is traversed, by process group, to locate processor metrics." +
-     " Optionally, a specific starting point in the process group hierarchy can be provided for traversal." +
-     " The prometheus push_gateway server requires a site and system moniker." +
-     " A property exists for the NiFi data-flow administrator to set the site moniker" +
-     " (defaults to DEVLAB). The system moniker is determined by the root canvas (which is" +
-     " also the window-title for the NiFi UI. As for the push_gateway endpoint, note that" +
-     " https is required (along with SSL Context). The default scheduling period is 1 minute, " +
-     " noting 5-minutes is the reporting/gathering periodicity." 
+     " flow values, are reported within privacy / sensitivity limits. What metrics to report is determined by" +
+     " the processor type filter, the starting process group (default to 'root', as signifying entire canvas)," +
+     " and the processor name regex filter. The process group hierarchy is traversed to locate processors" +
+     " to report metrics. A property exists for the NiFi data-flow administrator to set the site moniker" +
+     " (no default). The system moniker is determined by the root canvas (which is" +
+     " also the window-title for the NiFi UI. The default scheduling period is 1 minute." +
+     " Efficiency metrics are slope and intercept, computed using Apache commons / math3 SimpleRegression," +
+     " based on schedule and number of samples (ReportingTask configuration properties)."
 )
 @DefaultSchedule(strategy = SchedulingStrategy.TIMER_DRIVEN, period = "60 sec")
 @AutoService(ReportingTask.class)
@@ -112,20 +120,20 @@ public class NiFiPromProcessorEfficiencyMetricsReportingTask extends AbstractRep
       @Override
       public Double getKey()
       {
-         return new Double(time);
+         return Double.valueOf(time);
       }
 
       @Override
       public Double getValue()
       {
-         return new Double(value);
+         return Double.valueOf(value);
       }
 
       @Override
       public Double setValue(Double arg)
       {
          if (arg != null) { value = arg.longValue(); }
-         return new Double(value);
+         return Double.valueOf(value);
       }
    }
 
@@ -137,15 +145,15 @@ public class NiFiPromProcessorEfficiencyMetricsReportingTask extends AbstractRep
         .name("SSL Context Service")
         .displayName("SSL Context Service")
         .description("The SSL Context Service provides SSL credentials for communicating with the prometheus' server")
-        .required(true)
+        .required(false)
         .identifiesControllerService(SSLContextService.class)
         .build();
 
    public static final PropertyDescriptor PROM_ENDPOINT_URL = new PropertyDescriptor.Builder()
         .name("Metrcics endpoint URL")
-        .description("Prometheus push_gateway/collector endpoint URL. MUST begin with https://")
+        .description("Prometheus push_gateway/collector endpoint URL.")
         .required(true)
-        .defaultValue("https://prom-collector:9550/collector")
+        .defaultValue("https://host:port/rest-path")
         .addValidator(StandardValidators.URL_VALIDATOR)
         .expressionLanguageSupported(ExpressionLanguageScope.VARIABLE_REGISTRY)
         .build();
@@ -186,7 +194,6 @@ public class NiFiPromProcessorEfficiencyMetricsReportingTask extends AbstractRep
         .name("Reporting site")
         .description("Site reported to Prometheus. Must be non-blank.")
         .required(true)
-        .defaultValue("DEVLAB")
         .addValidator(StandardValidators.NON_BLANK_VALIDATOR)
         .expressionLanguageSupported(ExpressionLanguageScope.VARIABLE_REGISTRY)
         .build();
@@ -280,7 +287,7 @@ public class NiFiPromProcessorEfficiencyMetricsReportingTask extends AbstractRep
     * Used with math3.SimpleRegression Linear Trend computation, configurable
     * We force Number-of-Trend-Samples to be >= 3 and < 1000.
     */
-   protected int numTrendSamples = 5;
+   protected int numTrendSamples = 10;
 
    /**
     * A metric label that we only need to grab once (we'll grab it in the onScheduled() method)
@@ -291,7 +298,7 @@ public class NiFiPromProcessorEfficiencyMetricsReportingTask extends AbstractRep
     * We cannot determine 'site' by any other embedded nifi flow artifact (oh sure,
     * it could be a variable). But, nevertheless, site has to be provided extraneously.
     */
-   protected String site = "DEVLAB";
+   protected String site = null;
 
    /**
     * The nifi data flow administrator must acknowledge and take responsibility
@@ -301,7 +308,7 @@ public class NiFiPromProcessorEfficiencyMetricsReportingTask extends AbstractRep
 
    /**
     * Works in concert with privacy_ack to ensure that metrics do not exceed privacy constraints.
-    * Metrics are not sent to prometheus, they are only logged to nifi-app.log.
+    * When true, metrics are not sent to prometheus, they are only logged to nifi-app.log.
     */
    protected boolean simulation = true;
    
@@ -398,9 +405,15 @@ public class NiFiPromProcessorEfficiencyMetricsReportingTask extends AbstractRep
             name_pattern = Pattern.compile(name_expression);
          }
 
-         if (promUrl != null && !promUrl.isEmpty() && !promUrl.startsWith("https://")) // required
+         if (promUrl != null && !promUrl.isEmpty() && !promUrl.startsWith("http")) // rudimentary surface check
          {
-            getLogger().error("Prometheus URL MUST start with https:// -- reporting task service is disabled");
+            getLogger().error("Prometheus URL MUST start with 'http' -- reporting task service is disabled");
+            promUrl = null;
+         }
+
+         if (promUrl != null && promUrl.startsWith("https") && sslContextService == null)
+         {
+            getLogger().error("Prometheus URL starts with 'https', but no sslContextService is provided -- reporting task service is disabled");
             promUrl = null;
          }
 
@@ -472,11 +485,17 @@ public class NiFiPromProcessorEfficiencyMetricsReportingTask extends AbstractRep
    {
       getLogger().debug("TRACE - onTrigger() - promUrl{" + promUrl + "} process-group-filter{" + process_group_filter + "} type{" + type + "} nameExpr{" + name_expression + "} ClusterNodeId{" + context.getClusterNodeIdentifier() + "}");
 
-      if (promUrl != null && !promUrl.isEmpty() && !promUrl.startsWith("https://")) // required
+      if (promUrl != null && !promUrl.isEmpty() && !promUrl.startsWith("http")) // required and rudimentary surface check
       {
-         getLogger().error("Prometheus URL MUST start with https:// -- reporting task service is efectively disabled");
+         getLogger().error("Prometheus URL MUST start with 'http' -- reporting task service is efectively disabled");
          promUrl = null;
       }
+      if (promUrl != null && promUrl.startsWith("https") && sslContextService == null)
+      {
+         getLogger().error("Prometheus URL starts with 'https', but no sslContextService is provided -- reporting task service is disabled");
+         promUrl = null;
+      }
+
       if (promUrl != null && promUrl.endsWith("/")) // remove the trailing slash (we tack it on later)
       {
          promUrl = promUrl.substring(0, promUrl.length() - 1);
@@ -600,15 +619,21 @@ public class NiFiPromProcessorEfficiencyMetricsReportingTask extends AbstractRep
 
                URL url = new URL(promUrl + formulatedURL); // used as a verifier
 
-               getLogger().info("TRACE - URL (ENCODED): " + url); // this is fairly useful as an INFO
-               getLogger().info("TRACE - metric (string): " + formulatedMetrics[0]); // this is fairly useful as an INFO
+               if (simulation)
+               {
+                  getLogger().info("TRACE - URL (ENCODED): " + url); // this is fairly useful as an INFO
+                  getLogger().info("TRACE - metric (string): " + formulatedMetrics[0]); // this is fairly useful as an INFO
+               }
 
                if (!simulation)
                {
-                  SSLContext sslContext = createSSLContext(sslContextService);
-                  final SSLConnectionSocketFactory sslsf = new SSLConnectionSocketFactory(sslContext);
                   HttpClientBuilder httpClientBuilder = HttpClients.custom();
-                  httpClientBuilder = httpClientBuilder.setSSLSocketFactory(sslsf);
+                  if (formulatedURL.startsWith("https") && sslContextService != null) // latter check is sanity
+                  {
+                     SSLContext sslContext = createSSLContext(sslContextService);
+                     final SSLConnectionSocketFactory sslsf = new SSLConnectionSocketFactory(sslContext);
+                     httpClientBuilder = httpClientBuilder.setSSLSocketFactory(sslsf);
+                  }
                   CloseableHttpClient httpClient = httpClientBuilder.build();
                   HttpPost httpPost = new HttpPost(url.toString());
                   HttpEntity httpEntity = new StringEntity(formulatedMetrics[0], ContentType.TEXT_PLAIN);
