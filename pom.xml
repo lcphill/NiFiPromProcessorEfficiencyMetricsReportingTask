@@ -1,0 +1,75 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+ xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+
+    <modelVersion>4.0.0</modelVersion>
+    <artifactId>nifi-prometheus-reporting-task-processor-efficiency-metrics</artifactId>
+    <groupId>org.zonk.nifi.prometheus.reportingtask.processorefficiency</groupId>
+    <version>1.1.0</version> <!-- WARNING: IF YOU CHANGE 'version', THEN CHANGE BELOW TO MATCH -->
+    <packaging>pom</packaging>
+
+    <modules>
+       <module>impl</module>
+       <module>nar</module>
+    </modules>
+
+    <profiles>
+        <profile>
+            <id>nifi-180</id>
+            <activation>
+               <activeByDefault>true</activeByDefault>
+            </activation>
+            <properties>
+               <project.nifi.version>1.8.0</project.nifi.version>
+            </properties>
+        </profile>
+        <profile>
+            <id>nifi-171</id>
+            <properties>
+               <project.nifi.version>1.7.1</project.nifi.version>
+            </properties>
+        </profile>
+        <!-- CODE DOES NOT COMPILE AGAINST <profile>
+            <id>nifi-160</id>
+            <properties>
+               <project.nifi.version>1.6.0.d</project.nifi.version>
+            </properties>
+        </profile> -->
+    </profiles>
+
+    <properties>
+        <zonk.nifi.prometheus.reportingtask.processorefficiency.metrics.version>1.1.0</zonk.nifi.prometheus.reportingtask.processorefficiency.metrics.version> <!-- WARNING: MUST MATCH ABOVE -->
+        <project.autoservice.version>1.0-rc6</project.autoservice.version>
+    </properties>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.6.1</version>
+                <configuration>
+                    <source>1.8</source>
+                    <target>1.8</target>
+                    <showDeprecation>true</showDeprecation>
+                    <showWarnings>true</showWarnings>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.nifi</groupId>
+                <artifactId>nifi-nar-maven-plugin</artifactId>
+                <version>1.2.0</version>
+                <extensions>true</extensions>
+                <configuration>
+                    <archive>
+                        <manifestEntries>
+                            <Built-By>unattributed</Built-By>
+                        </manifestEntries>
+                        <addMavenDescriptor>false</addMavenDescriptor>
+                    </archive>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>
+

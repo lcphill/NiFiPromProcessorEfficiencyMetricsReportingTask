@@ -1,0 +1,31 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+ xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    
+    <modelVersion>4.0.0</modelVersion>
+    <artifactId>nifi-prometheus-reporting-task-processor-efficiency-metrics-nar-apache-nifi-${project.nifi.version}</artifactId>
+    <groupId>org.zonk.nifi.prometheus.reportingtask.processorefficiency</groupId>
+    <!-- UNNECESSARY, as 'version' is inherited from 'parent.version' below: <version>x.y.z</version> -->
+    <packaging>nar</packaging>
+
+    <parent>
+       <artifactId>nifi-prometheus-reporting-task-processor-efficiency-metrics</artifactId>
+       <groupId>org.zonk.nifi.prometheus.reportingtask.processorefficiency</groupId>
+       <version>1.1.0</version> <!-- WARNING: MUST MATCH PARENT VERSION (MAINTENANCE BURDEN) -->
+    </parent>
+
+    <dependencies>
+       <dependency>
+          <artifactId>nifi-prometheus-reporting-task-processor-efficiency-metrics-impl</artifactId>
+          <groupId>org.zonk.nifi.prometheus.reportingtask.processorefficiency</groupId>
+          <version>${zonk.nifi.prometheus.reportingtask.processorefficiency.metrics.version}</version>
+       </dependency>
+        <dependency>
+            <groupId>org.apache.nifi</groupId>
+            <artifactId>nifi-standard-services-api-nar</artifactId>
+            <type>nar</type>
+            <version>${project.nifi.version}</version>
+        </dependency>
+    </dependencies>
+
+</project>
+
