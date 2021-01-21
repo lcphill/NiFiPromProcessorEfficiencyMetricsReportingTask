@@ -14,16 +14,24 @@
 
     <profiles>
         <profile>
-            <id>nifi-180</id>
+            <id>nifi-1-12-1</id>
             <activation>
                <activeByDefault>true</activeByDefault>
+            </activation>
+            <properties>
+               <project.nifi.version>1.12.1</project.nifi.version>
+            </properties>
+        </profile>
+        <profile>
+            <id>nifi-1-8-0</id>
+            <activation>
             </activation>
             <properties>
                <project.nifi.version>1.8.0</project.nifi.version>
             </properties>
         </profile>
         <profile>
-            <id>nifi-171</id>
+            <id>nifi-1-7-1</id>
             <properties>
                <project.nifi.version>1.7.1</project.nifi.version>
             </properties>
