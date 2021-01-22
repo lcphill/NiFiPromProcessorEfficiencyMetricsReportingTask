@@ -973,6 +973,8 @@ public class NiFiPromProcessorEfficiencyMetricsReportingTask extends AbstractRep
             metricName = "nifi_processor_queue_size_bytes";
             metricValue = connStat.getQueuedBytes();
             formulateQueueMetric(formulatedMetrics, metricName, metricValue, queueName, queueSide, pgs, ps);
+
+            // TODO (to be determined): connStat.getPredictions().*
          }
       }
    }
