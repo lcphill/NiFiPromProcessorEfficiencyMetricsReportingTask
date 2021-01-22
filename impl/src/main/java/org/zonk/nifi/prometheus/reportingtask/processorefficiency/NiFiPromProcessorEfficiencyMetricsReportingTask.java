@@ -576,6 +576,10 @@ public class NiFiPromProcessorEfficiencyMetricsReportingTask extends AbstractRep
          if ((instanceMoniker == null || instanceMoniker.equalsIgnoreCase("NiFi Flow"))
               && context.isClustered())
          {
+            // WARN: getClusterNodeIdentifier() has a bug -- the cluster node identifier does
+            // not update when the string is changed in the NiFi UI (at least, for standalone).
+            // In this situation, you must restart the instance to obtain the current value.
+
             instanceMoniker = context.getClusterNodeIdentifier(); // returns non-null when clustered (and connected)
          }
          if (instanceMoniker == null || instanceMoniker.equalsIgnoreCase("NiFi Flow"))
