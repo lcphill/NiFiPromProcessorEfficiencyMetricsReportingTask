@@ -919,7 +919,7 @@ public class NiFiPromProcessorEfficiencyMetricsReportingTask extends AbstractRep
             if (localFifoInputQueueCount == null)
             {
                localFifoInputQueueCount = new CircularFifoQueue<TimeSeriesPair>(numTrendSamples);
-               srFifoInputQueueCount.put(processorId, localFifoInputQueueBytes);
+               srFifoInputQueueCount.put(processorId, localFifoInputQueueCount);
             }
 
             // So, this may seem odd, that we're calling "getOutputBlah()" versus "getInputBlah()",
