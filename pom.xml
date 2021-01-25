@@ -4,7 +4,7 @@
     <modelVersion>4.0.0</modelVersion>
     <artifactId>nifi-prometheus-reporting-task-processor-efficiency-metrics</artifactId>
     <groupId>org.zonk.nifi.prometheus.reportingtask.processorefficiency</groupId>
-    <version>1.1.0</version> <!-- WARNING: IF YOU CHANGE 'version', THEN CHANGE BELOW TO MATCH -->
+    <version>1.1.1</version> <!-- WARNING: IF YOU CHANGE 'version', THEN CHANGE BELOW TO MATCH -->
     <packaging>pom</packaging>
 
     <modules>
@@ -45,7 +45,7 @@
     </profiles>
 
     <properties>
-        <zonk.nifi.prometheus.reportingtask.processorefficiency.metrics.version>1.1.0</zonk.nifi.prometheus.reportingtask.processorefficiency.metrics.version> <!-- WARNING: MUST MATCH ABOVE -->
+        <zonk.nifi.prometheus.reportingtask.processorefficiency.metrics.version>1.1.1</zonk.nifi.prometheus.reportingtask.processorefficiency.metrics.version> <!-- WARNING: MUST MATCH ABOVE -->
         <project.autoservice.version>1.0-rc6</project.autoservice.version>
     </properties>
 
