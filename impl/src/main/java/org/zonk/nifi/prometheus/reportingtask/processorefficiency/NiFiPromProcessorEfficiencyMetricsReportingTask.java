@@ -39,6 +39,7 @@ import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -341,15 +342,17 @@ public class NiFiPromProcessorEfficiencyMetricsReportingTask extends AbstractRep
     * Used to hold underlying InputQueueBytes' time series data.
     * Used with SimpleRegression' Linear Trend algorithm;
     * We can not allocate this construct until run time ('er, onTrigger() method).
+    * Map key is processor UUID.
     */
-   protected CircularFifoQueue<TimeSeriesPair> srFifoInputQueueBytes = null;
+   protected Map<String, CircularFifoQueue<TimeSeriesPair>> srFifoInputQueueBytes = null;
 
    /**
     * Used to hold underlying InputQueueCount' time series data.
     * Used with SimpleRegression' Linear Trend algorithm;
     * We can not allocate this construct until run time ('er, onTrigger() method).
+    * Map key is processor UUID.
     */
-   protected CircularFifoQueue<TimeSeriesPair> srFifoInputQueueCount = null;
+   protected Map<String, CircularFifoQueue<TimeSeriesPair>> srFifoInputQueueCount = null;
 
    /**
     * NiFi required method. No special processing, just a simple get accessor
@@ -396,8 +399,8 @@ public class NiFiPromProcessorEfficiencyMetricsReportingTask extends AbstractRep
 
          if (srFifoInputQueueBytes == null) // only new'd the first time
          {
-            srFifoInputQueueCount = new CircularFifoQueue<>(numTrendSamples);
-            srFifoInputQueueBytes = new CircularFifoQueue<>(numTrendSamples);
+            srFifoInputQueueCount = new HashMap<>();
+            srFifoInputQueueBytes = new HashMap<>();
          }
 
          if (name_expression != null && !name_expression.isEmpty()) // non-empty validator?
@@ -501,8 +504,8 @@ public class NiFiPromProcessorEfficiencyMetricsReportingTask extends AbstractRep
          promUrl = promUrl.substring(0, promUrl.length() - 1);
       }
 
-      if (srFifoInputQueueCount == null) { srFifoInputQueueCount = new CircularFifoQueue<>(numTrendSamples); } // sanity
-      if (srFifoInputQueueBytes == null) { srFifoInputQueueBytes = new CircularFifoQueue<>(numTrendSamples); } // sanity
+      if (srFifoInputQueueCount == null) { srFifoInputQueueCount = new HashMap<>(); } // sanity
+      if (srFifoInputQueueBytes == null) { srFifoInputQueueBytes = new HashMap<>(); } // sanity
 
       /**
        * For some reason, the reporting task will start, even though the node is not connected
@@ -905,24 +908,37 @@ public class NiFiPromProcessorEfficiencyMetricsReportingTask extends AbstractRep
             queueSide = "input"; // input queue:
             queueName = "input"; // input queues do not have a queue name
             getLogger().debug("TRACE INPUT QUEUE - groupName{" + pgs.getName() + "} connection{" + connStat + "}");
+            
+            CircularFifoQueue<TimeSeriesPair> localFifoInputQueueBytes = srFifoInputQueueBytes.get(processorId);
+            if (localFifoInputQueueBytes == null)
+            {
+               localFifoInputQueueBytes = new CircularFifoQueue<TimeSeriesPair>(numTrendSamples);
+               srFifoInputQueueBytes.put(processorId, localFifoInputQueueBytes);
+            }
+            CircularFifoQueue<TimeSeriesPair> localFifoInputQueueCount = srFifoInputQueueCount.get(processorId);
+            if (localFifoInputQueueCount == null)
+            {
+               localFifoInputQueueCount = new CircularFifoQueue<TimeSeriesPair>(numTrendSamples);
+               srFifoInputQueueCount.put(processorId, localFifoInputQueueBytes);
+            }
 
             // So, this may seem odd, that we're calling "getOutputBlah()" versus "getInputBlah()",
             // but the output side of the "input queue" is consistent and non-zero.
             metricValue = connStat.getOutputBytes();
             long epochTime = System.currentTimeMillis() / 1000;
             TimeSeriesPair tsp = new TimeSeriesPair(epochTime, metricValue);
-            srFifoInputQueueBytes.add(tsp);
+            localFifoInputQueueBytes.add(tsp);
             metricValue = connStat.getOutputCount();
             tsp = new TimeSeriesPair(epochTime, metricValue);
-            srFifoInputQueueCount.add(tsp);
+            localFifoInputQueueCount.add(tsp);
 
             // There is one and only one input queue for a processor.
             // We can, thus, produce the SimpleRegressions if we've got enough samples...
 
-            if (srFifoInputQueueBytes.isAtFullCapacity()) // only need to check one of them
+            if (localFifoInputQueueBytes.isAtFullCapacity()) // only need to check one of them
             {
                final SimpleRegression sr = new SimpleRegression(true);
-               srFifoInputQueueBytes.forEach((k) -> {
+               localFifoInputQueueBytes.forEach((k) -> {
                   sr.addData(k.getKey(), k.getValue());
                } );
                metricName = "nifi_processor_input_queue_bytes_slope";
@@ -934,7 +950,7 @@ public class NiFiPromProcessorEfficiencyMetricsReportingTask extends AbstractRep
                formulateQueueMetric(formulatedMetrics, metricName, metricValue, queueName, queueSide, pgs, ps);
 
                final SimpleRegression sr2 = new SimpleRegression(true);
-               srFifoInputQueueCount.forEach((k) -> {
+               localFifoInputQueueCount.forEach((k) -> {
                   sr2.addData(k.getKey(), k.getValue());
                } );
                metricName = "nifi_processor_input_queue_count_slope";
