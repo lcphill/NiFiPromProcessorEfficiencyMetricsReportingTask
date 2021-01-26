@@ -5,7 +5,7 @@
 	<title></title>
 	<meta name="generator" content="LibreOffice 5.3.6.1 (Linux)"/>
 	<meta name="created" content="2021-01-25T09:49:05.466877179"/>
-	<meta name="changed" content="2021-01-25T10:22:06.554885460"/>
+	<meta name="changed" content="2021-01-26T10:28:52.709571690"/>
 	<style type="text/css">
 		@page { margin: 0.79in }
 		p { margin-bottom: 0.1in; line-height: 120% }
@@ -13,6 +13,10 @@
 		h1.western { font-family: "Liberation Sans", sans-serif; font-size: 18pt }
 		h1.cjk { font-family: "WenQuanYi Zen Hei Sharp"; font-size: 18pt }
 		h1.ctl { font-family: "DejaVu Sans"; font-size: 18pt }
+		h2.western { font-family: "Liberation Sans", sans-serif; font-size: 16pt }
+		h2.cjk { font-family: "WenQuanYi Zen Hei Sharp"; font-size: 16pt }
+		h2.ctl { font-size: 16pt }
+		a:link { so-language: zxx }
 	</style>
 </head>
 <body lang="en-US" dir="ltr">
@@ -22,6 +26,9 @@ Prometheus Reporting Task:</b></font></font></p>
 <p align="center" style="margin-top: 0.04in; margin-bottom: 0.08in; line-height: 100%; page-break-after: avoid">
 <font face="Liberation Sans, sans-serif"><font size="5" style="font-size: 18pt">Processor
 Efficiency Metrics</font></font></p>
+<h1 class="western">Reference implementation:</h1>
+<p>See the following github code repository:</p>
+<p>https://github.com/lcphill/NiFiPromProcessorEfficiencyMetricsReportingTask</p>
 <h1 class="western">Introduction</h1>
 <p>Report processor efficiency metrics, via NiFi Reporting Task, in
 Prometheus “push gateway” format and “push” (versus
@@ -29,13 +36,202 @@ Prometheus “push gateway” format and “push” (versus
 <p>By “efficiency metrics”, the intent is to event on unbalanced
 backlog and / or flow-drop-off (not necessarily “flow dry up”).
 The reference implementation is using Apache Commons Math3
-SimpleRegression, using slope to form the basis of a Grafana alarm
-trigger. The ‘x’ axis of the Double-pair is epoch timestamp in
-seconds, while the ‘y’ coordinate is the input queue value (bytes
-and count, as two separate metrics / computations).</p>
+SimpleRegression, using slope / intercept to form the basis of
+Grafana alarm triggers. The ‘x’ axis of the Double-pair is epoch
+timestamp in seconds, while the ‘y’ coordinate is the input queue
+value (byte count and flow-file count, as two separate metrics /
+computations).</p>
+<p>Predict is a feature of SimpleRegression that is not exploited by
+the reference implementation, although predicting is a potential
+feature worthy of further investigation.</p>
 <p>Along the way, the remainder of the processor metrics available
 from the ReportingTaskContext API are reported, as well as the
 consortium of JVM metrics (per node).</p>
+<p>Grafana provides a slope / intercept formula, but those
+calculations are at the back-end of the metrics platform
+infrastructure, noting that Prometheus polls on a 5-minute basis
+(presumed configurable). Further, it is not uncommon for metrics to
+be lost, from time to time, periodic, thereby rendering slope /
+intercept calculation at the back-end impossible surrounding those
+outage situations.</p>
+<h2 class="western">Collector / push-gateway</h2>
+<p>Various constraints drive a metrics architecture back to a push /
+collector model vice polling (which is not to criticize the
+Prometheus design choice to poll), particularly security and
+networking aspects.</p>
+<p>See this reference golang implementation of a collector:
+https://github.com/pschou/prom-collector</p>
+<h1 class="western">Usage</h1>
+<p>The reference implementation is a single java file (the reporting
+task, wholly self-contained, albeit, there is a build dependency to
+the standard SSL context controller service), built into a dot.nar
+file (Apache maven 3.6.x, Java 11, Apache NiFi 1.12.x). Install the
+dot.nar file in typical fashion.</p>
+<p>Instantiate the reporting task at the root canvas (using global
+menu =&gt; controller settings =&gt; reporting tasks, filter by
+‘prometheus’), allowing authorization throughout the entire NiFi
+instance process group hierarchy (see next paragraph). Note that as
+many instances of the reporting task can be instantiated as needed,
+varying configuration as desired (resources permitting, but any
+reasonable and rationale need should be satisfactory).</p>
+<p>The reporting task can be configured to start at a named process
+group hierarchy (default to root canvas), but must locate a specified
+process group hierarchy, specified by name, by starting from the root
+canvas and working downward.</p>
+<p style="text-decoration: none">The next step is to configure the
+reporting task…</p>
+<h1 class="western">Configuration</h1>
+<ul>
+	<li/>
+<p>Settings / Run Schedule: the default is 60 seconds, which
+	interplay’s with the slope / intercept computations (see number of
+	samples further below).</p>
+</ul>
+<p style="margin-left: 0.49in">The reference implementation posts
+metrics on each schedule / invocation. Other than (two) FIFO queues
+used to hold SimpleRegression samples, no metrics data is cached
+between schedule invocations. The interplay between schedule and
+samples will be described below.</p>
+<ul>
+	<li/>
+<p>Properties / Number of trend samples (default of 20)</p>
+</ul>
+<p style="margin-left: 0.49in">SimpleRegression is handed a
+configured number of Double-pair samples (i.e., number of trend
+samples), for which to compute Slope and Intercept (as well as,
+potentially, Predict). As mentioned, the ‘x’ axis is epoch
+timestamp in seconds, and the ‘y’ value is the byte count or
+flow-file count value for the input-side of a processor. Regarding
+‘input-side’, the driving requirement is backlog and flow
+drop-off as incoming to a processor.</p>
+<p style="margin-left: 0.49in">There are actually four discrete
+regression metrics that the reference implementation provides, namely
+Slope and Intercept for Byte Count and Flow File Count for Processor
+Input Queue (technically, the way the ReportingTaskContext API works,
+the metric value is obtained for an output_queue where the
+destination is the target observance processor, specified in the
+reporting task controller service configuration described further
+below).</p>
+<p style="margin-left: 0.49in">Byte count and flow file count
+constitute two separate FIFO queues, for which slope and intercept
+are calculated (intercept is, roughly, the inverse of slope, noting
+we are not exploiting the predict feature), noting that FIFO queues
+are “per processor” (internal Map is keyed by processor UUID).
+These FIFO constructs are the only state maintained between scheduled
+runs of the reporting task controller service, sized for
+number-of-trend-samples.</p>
+<p style="margin-left: 0.49in">The greater the number of trend
+samples, the more stable / less dynamic the slope and intercept
+calculation shall result, tending toward zero. Conversely, the lower
+the number of trend samples, the greater the dynamics are toward
+calculating slope and intercept.</p>
+<p style="margin-left: 0.49in">By varying the run schedule alongside
+the configured number of trend samples, a balance can be tuned, based
+on apriori knowledge of the data flow, such that Grafana alarms
+specification can be contrived such that “crying wolf” is
+minimized while ensuring that true-positives are properly detected
+(there is no such thing as a perfect alarm specification).</p>
+<p style="margin-left: 0.49in">The reference implementation imposes a
+hard-coded constraint, such that the configured number of trend
+samples is between 3 and 1,000.</p>
+<p style="margin-left: 0.49in">Also note that the reference
+implementation posts metrics to Prometheus’ collector /
+push-gateway per run schedule invocation – the driving reason for
+this design is simplicity / reduction of code complexity. Reminder
+that this is a reference implementation, although it has performed
+well in production as designed as is.</p>
+<ul>
+	<li/>
+<p>Properties / Acknowledge Sanitization (default false) and
+	Properties / Simulation Mode (default true)</p>
+</ul>
+<p style="margin-left: 0.49in">Metrics, when collected in bulk, raise
+the sensitivity-level / compliance-level / privacy-level required by
+your viewing audience.</p>
+<p style="margin-left: 0.49in">These two properties assist in
+supporting your effort to scrutinize and ensure your reported metrics
+are of sufficient obfuscation. The responsibility of what is reported
+rests with the NiFi dataflow administration organization / personnel.
+In particular, …</p>
+<p style="margin-left: 0.49in">Metrics labels nominally consist of
+the following elements: NiFi instance name, site and system names
+(contrivances), node name, process group name, processor name,
+processor type, and, contextual, queue/relation names. Additive,
+these can raise privacy concerns.</p>
+<p style="margin-left: 0.49in">The typical solution is that of
+obfuscation, such that reported label values are sanitized (that is,
+rename your processors and maybe other elements, depending on your
+situation).</p>
+<p style="margin-left: 0.49in">Simulation Mode (default true)
+specifies that metrics are posted only to the NiFi log file (per
+node). By using this feature, a data flow administrator (with SSH
+access to the nodes and permission to view log files) can visually
+inspect the metrics that would otherwise be sent to the Prometheus
+server (by turning off simulation mode).</p>
+<p style="margin-left: 0.49in">No behavior occurs while the
+Acknowledge Sanitization property is set to false.</p>
+<ul>
+	<li/>
+<p>Properties / Reporting Site</p>
+</ul>
+<p style="margin-left: 0.49in">A simple Proemtheus’ metric label
+for informational purposes. Required, but otherwise not validated /
+verified. TODO: ensure the value does not violate Prometheus’ label
+value rules.</p>
+<ul>
+	<li/>
+<p>Properties / Starting Process Group</p>
+</ul>
+<p style="margin-left: 0.49in">Default to ‘root’, signifying
+traverse the entire canvas and process group hierarchy. This property
+is not REGEX compiled. It is an exact match, including
+character-case. If specified, traverse from the provided process
+group (by name, based on “first match”) to report processor
+efficiency metrics.</p>
+<ul>
+	<li/>
+<p>Properties / Processor (name) filter</p>
+</ul>
+<p style="margin-left: 0.49in">This can be an exact match
+(character-case significant), or a Java REGEX
+(<a href="https://docs.oracle.com/en/java/javase/11/docs/api/java.base/java/util/regex/Pattern.html">https://docs.oracle.com/en/java/javase/11/docs/api/java.base/java/util/regex/Pattern.html</a>).
+The default is to match everything (that is, all processors of the
+specified type – see next property below). Considering privacy
+concerns, reporting metrics for every processor is probably a bad
+default value.</p>
+<ul>
+	<li/>
+<p>Properties / ProcessorTypeFilter</p>
+</ul>
+<p style="margin-left: 0.49in">This must be an exact match,
+specifying a processor type. This property works in concert with
+Processor (name) filter and Starting Process Group to narrow the
+scope of metrics reported.</p>
+<p style="margin-left: 0.49in">Reminder that all of this filtering is
+intended to report metrics that lie within the umbrella of privacy
+concerns.</p>
+<ul>
+	<li/>
+<p>Properties / Prometheus Metrics Endpoint</p>
+</ul>
+<p style="margin-left: 0.49in">Noting that Prometheus is a polling
+paradigm, this property refers to a collector (e.g.,
+<a href="https://github.com/pschou/prom-collector">https://github.com/pschou/prom-collector</a>)
+or push_gateway (e.g., <a href="https://github.com/prometheus/pushgateway">https://github.com/prometheus/pushgateway</a>).
+This endpoint should be HTTPS / SSL, but is not required (such as,
+demonstration and local-host routing).</p>
+<ul>
+	<li/>
+<p>Properties / SSL Context Service</p>
+</ul>
+<p style="margin-left: 0.49in">Although optional (such as
+demonstration and local-host routing), HTTPS / SSL should ideally be
+enabled. See Properties / Prometheus Metrics Endpoint discussion
+above.</p>
+<p><br/>
+<br/>
+
+</p>
 <p><br/>
 <br/>
 
