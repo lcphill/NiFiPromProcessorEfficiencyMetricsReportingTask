@@ -5,7 +5,7 @@
 	<title></title>
 	<meta name="generator" content="LibreOffice 5.3.6.1 (Linux)"/>
 	<meta name="created" content="2021-01-25T09:49:05.466877179"/>
-	<meta name="changed" content="2021-01-27T12:14:44.471442518"/>
+	<meta name="changed" content="2021-01-27T14:45:42.847053012"/>
 	<style type="text/css">
 		@page { margin: 0.79in }
 		p { margin-bottom: 0.1in; line-height: 120% }
@@ -88,13 +88,13 @@ reporting task…</p>
 	<li/>
 <p>Settings / Run Schedule: the default is 60 seconds, which
 	interplay’s with the slope / intercept computations (see number of
-	samples further below).</p>
+	trend samples further below).</p>
 </ul>
 <p style="margin-left: 0.49in">The reference implementation posts
-metrics on each schedule / invocation. Other than (two) FIFO queues
-used to hold SimpleRegression samples, no metrics data is cached
-between schedule invocations. The interplay between schedule and
-samples will be described below.</p>
+metrics on each schedule / invocation. Other than FIFO queues used to
+hold SimpleRegression samples, no metrics data is cached between
+schedule invocations. The interplay between schedule and samples will
+be described below.</p>
 <ul>
 	<li/>
 <p>Properties / Number of trend samples (default of 20)</p>
@@ -105,8 +105,8 @@ samples), for which to compute Slope and Intercept (as well as,
 potentially, Predict). As mentioned, the ‘x’ axis is epoch
 timestamp in seconds, and the ‘y’ value is the byte count or
 flow-file count value for the input-side of a processor. Regarding
-‘input-side’, the driving requirement is backlog and flow
-drop-off as incoming to a processor.</p>
+‘input-side’, the driving requirement is unbalanced backlog and
+flow drop-off as incoming to a processor.</p>
 <p style="margin-left: 0.49in">There are actually four discrete
 regression metrics that the reference implementation provides, namely
 Slope and Intercept for Byte Count and Flow File Count for Processor
@@ -116,13 +116,13 @@ destination is the target observance processor, specified in the
 reporting task controller service configuration described further
 below).</p>
 <p style="margin-left: 0.49in">Byte count and flow file count
-constitute two separate FIFO queues, for which slope and intercept
-are calculated (intercept is, roughly, the inverse of slope, noting
-we are not exploiting the predict feature), noting that FIFO queues
-are “per processor” (internal Map is keyed by processor UUID).
-These FIFO constructs are the only state maintained between scheduled
-runs of the reporting task controller service, sized for
-number-of-trend-samples.</p>
+constitute two separate FIFO queues (per processor to report), for
+which slope and intercept are calculated (intercept is, roughly, the
+inverse of slope, noting we are not exploiting the predict feature).
+As mentioned, the two FIFO queues are “per reporting processor”
+(internal Map is keyed by processor UUID). These FIFO constructs are
+the only state maintained between scheduled runs of the reporting
+task controller service, sized for number-of-trend-samples.</p>
 <p style="margin-left: 0.49in">The greater the number of trend
 samples, the more stable / less dynamic the slope and intercept
 calculation shall result, tending toward zero. Conversely, the lower
@@ -130,8 +130,8 @@ the number of trend samples, the greater the dynamics are toward
 calculating slope and intercept.</p>
 <p style="margin-left: 0.49in">By varying the run schedule alongside
 the configured number of trend samples, a balance can be tuned, based
-on apriori knowledge of the data flow, such that Grafana alarms
-specification can be contrived such that “crying wolf” is
+on apriori knowledge of the data flow, such that Grafana alarm
+specifications can be contrived such that “crying wolf” is
 minimized while ensuring that true-positives are properly detected
 (there is no such thing as a perfect alarm specification).</p>
 <p style="margin-left: 0.49in">The reference implementation imposes a
