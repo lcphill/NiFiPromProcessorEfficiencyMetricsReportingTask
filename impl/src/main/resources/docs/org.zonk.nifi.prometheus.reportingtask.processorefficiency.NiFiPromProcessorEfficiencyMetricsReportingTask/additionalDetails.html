@@ -5,7 +5,7 @@
 	<title></title>
 	<meta name="generator" content="LibreOffice 5.3.6.1 (Linux)"/>
 	<meta name="created" content="2021-01-25T09:49:05.466877179"/>
-	<meta name="changed" content="2021-01-26T10:28:52.709571690"/>
+	<meta name="changed" content="2021-01-27T12:14:44.471442518"/>
 	<style type="text/css">
 		@page { margin: 0.79in }
 		p { margin-bottom: 0.1in; line-height: 120% }
@@ -16,6 +16,9 @@
 		h2.western { font-family: "Liberation Sans", sans-serif; font-size: 16pt }
 		h2.cjk { font-family: "WenQuanYi Zen Hei Sharp"; font-size: 16pt }
 		h2.ctl { font-size: 16pt }
+		h3.western { font-family: "Liberation Sans", sans-serif; font-size: 14pt }
+		h3.cjk { font-family: "WenQuanYi Zen Hei Sharp"; font-size: 14pt }
+		h3.ctl { font-size: 14pt }
 		a:link { so-language: zxx }
 	</style>
 </head>
@@ -158,6 +161,18 @@ the following elements: NiFi instance name, site and system names
 (contrivances), node name, process group name, processor name,
 processor type, and, contextual, queue/relation names. Additive,
 these can raise privacy concerns.</p>
+<p style="margin-left: 0.49in">The NiFi instance label value (AKA,
+‘instance moniker’) is formulated as: ‘root’ process group
+name (as shown as the browser tab title, root canvas =&gt; Settings
+=&gt; Process Group Name), replacing spaces and any non-alphanumeric
+with dash characters (‘-’). It is intended that the NiFi instance
+label value be distinguishing and not empty. If the instance moniker
+cannot be obtained (edge case), then the cluster node identifier –
+not syntactically a UUID, but conceptually yet another form of UUID –
+is used as the instance moniker (in a clustered environment, of
+course). If in standalone mode and the default “NiFi Flow” is
+obtained, then the instance moniker shall be the node hostname (since
+“NiFi Flow” is non-distinguishing).</p>
 <p style="margin-left: 0.49in">The typical solution is that of
 obfuscation, such that reported label values are sanitized (that is,
 rename your processors and maybe other elements, depending on your
@@ -174,7 +189,7 @@ Acknowledge Sanitization property is set to false.</p>
 	<li/>
 <p>Properties / Reporting Site</p>
 </ul>
-<p style="margin-left: 0.49in">A simple Proemtheus’ metric label
+<p style="margin-left: 0.49in">A simple Prometheus’ metric label
 for informational purposes. Required, but otherwise not validated /
 verified. TODO: ensure the value does not violate Prometheus’ label
 value rules.</p>
@@ -183,8 +198,8 @@ value rules.</p>
 <p>Properties / Starting Process Group</p>
 </ul>
 <p style="margin-left: 0.49in">Default to ‘root’, signifying
-traverse the entire canvas and process group hierarchy. This property
-is not REGEX compiled. It is an exact match, including
+traverse the entire canvas and process group hierarchy thereunder.
+This property is not REGEX compiled. It is an exact match, including
 character-case. If specified, traverse from the provided process
 group (by name, based on “first match”) to report processor
 efficiency metrics.</p>
@@ -203,12 +218,12 @@ default value.</p>
 	<li/>
 <p>Properties / ProcessorTypeFilter</p>
 </ul>
-<p style="margin-left: 0.49in">This must be an exact match,
-specifying a processor type. This property works in concert with
-Processor (name) filter and Starting Process Group to narrow the
-scope of metrics reported.</p>
+<p style="margin-left: 0.49in">Required (default is empty). This must
+be an exact match, specifying a processor type. This property works
+in concert with Processor Name Filter and Starting Process Group
+(both described above) to narrow the scope of metrics reported.</p>
 <p style="margin-left: 0.49in">Reminder that all of this filtering is
-intended to report metrics that lie within the umbrella of privacy
+intended to report metrics that lie within your umbrella of privacy
 concerns.</p>
 <ul>
 	<li/>
@@ -228,13 +243,286 @@ demonstration and local-host routing).</p>
 demonstration and local-host routing), HTTPS / SSL should ideally be
 enabled. See Properties / Prometheus Metrics Endpoint discussion
 above.</p>
-<p><br/>
-<br/>
-
-</p>
-<p><br/>
-<br/>
-
-</p>
+<h1 class="western">Reported Metrics</h1>
+<p>Caveat: This author does not purport any in-depth knowledge of the
+meaning, semantics, definition or intent of the underlying metrics
+provided by the Apache NiFi ReportingTaskContext API. That said, by
+trial / error and practice / repetition, we have been able to exploit
+a core set of underlying metrics to effectively alarm on unbalanced
+backlog and flow-drop-off events (using SimpleRegression), as well as
+a handful of other traditional alarm conditions.</p>
+<p>Regarding privacy concerns, we cannot stress enough the importance
+of naming processors and process groups (which are reported as
+Prometheus metric label values) such as to obfuscate specific flow
+characteristics (typically as mapping to end-customers).</p>
+<h2 class="western">Metrics used for alerting</h2>
+<p>Fine-tuning notwithstanding, we’ve identified a handful of
+uncomplicated metrics that we can confidently define Grafana alarm
+specifications for.</p>
+<ul>
+	<li/>
+<p>Run Status: Metric name is ‘nifi_processor_run_status’
+	(1 for running and 0 for stopped). The idea behind setting up an
+	alarm for this metric is to be a reminder to the data flow
+	administrator(s) to turn the processor on if forgotten. Grafana can
+	throw a yellow pending alert after, say, a minute, and then alarm
+	after about an hour or two.</p>
+	<li/>
+<p>NiFi node JVM Heap Available: Metric name is
+	‘nifi_instance_available_memory’. Computed using Java.Runtime as
+	“max memory minus used memory” where used memory is “total
+	memory minus free memory”. All of this is a tad “fuzzy”, but
+	the intent is to use the ‘heap available’ gauge against apriori
+	knowledge of the data flows and what is an acceptable level of
+	excess heap for handling potential burst messaging scenarios (noting
+	NiFi content is effectively placed into the content repository if
+	all goes according to plan).</p>
+	<li/>
+<p>Input file queue count: Metric name is
+	‘nifi_processor_output_queue_count’ with {queue_side=”input”
+	… and processor_name=<i>blah</i> and so forth}.</p>
+</ul>
+<p style="margin-left: 0.49in">The intent of this metric / alarm
+specification is a straight forward “Is the flow dead?” alarm.</p>
+<p style="margin-left: 0.49in">As mentioned further above, the way
+connection-status is constructed, you are looking for your processor
+(i.e., ‘destination’) on the back-end of an output queue (hence,
+the semantics in the naming being what it is – <i>reminder, this is
+a reference implementation</i>). Note that the semantics above
+properly handle load balancing, if in effect (e.g., the flow to your
+processor on a particular node is not transmitting).</p>
+<p style="margin-left: 0.49in">Note the reference implementation
+accomplishes the <i><b>zero-latency</b></i> processor and
+connection-status join internally, thereby averting the arduous
+challenge of accomplishing a time-based outer-join being imposed upon
+the Grafana back-end query specification.</p>
+<ul>
+	<li/>
+<p>Slope and / or intercept: This is the core aspect to this
+	reporting task, namely “processor efficiency” as a cover phrase
+	for detecting unbalanced backlog and, conversely, flow drop-off (not
+	to be confused with non-existent flow, described above).</p>
+</ul>
+<p style="margin-left: 0.49in">‘Intercept’ graphs nominally as a
+converse to ‘slope’, albeit ‘intercept’ is much more
+sensitive. Depending on your fine-tuning, you may choose slope over
+intercept for your target Grafana alarm specification metric, or
+vice-versa.</p>
+<p style="margin-left: 0.49in">Regarding bytes count versus flow-file
+count, choosing one over the other is dependent, once again, on your
+apriori knowledge of the data flow(s). Do you have a large volume of
+tiny content or do you have a data flow whose content is
+exceptionally large, but of lower flow-file count volume?</p>
+<p style="margin-left: 0.49in">Slope and intercept are calculated
+using the SimpleRegression library, ‘x’ axis being timestamp in
+seconds, and value being the product of the join between processor
+and connection-status on the back-end side of the connection where
+the processor is tagged as the destination. See discussion above
+regarding run schedule and number of trend samples.</p>
+<p style="margin-left: 0.49in">A positive / rising slope value
+(conversely, a negative intercept value) indicates flow backlog while
+a negative slope value indicates flow drop-off. Functionally, flow
+drop-off is of more importance than that of backlog, while backlog is
+of a concern regarding performance and resources. Both are important
+or of a concern, of course. Typically, a Grafana alarm may specify  a
+lower minimum threshold and a higher maximum threshold, to allow for
+more variance regarding backlog.</p>
+<p style="margin-left: 0.49in">Note that the choice of unit for ‘x’
+axis being seconds is significant (hard-wired in the code). We
+experimented with other units (such as milliseconds) with detrimental
+impact, and, thus, settled on seconds for timing unit – noting the
+reporting task run schedule should nominally be tens of seconds or
+even minutes, since Prometheus is polling every 5 minutes, by
+default.</p>
+<p style="margin-left: 0.49in">Also of significant impact, the
+Grafana alarm specification should be an average() calculation. In
+effect, you are looking for a bump with a dip or, conversely, a dip
+without a dump.</p>
+<h2 class="western">Other Reportable Metrics</h2>
+<p>These metrics provide potential for alerting, particularly
+fine-tuning of alerts. You are looking to achieve a balance between
+“crying wolf” and missing a true-positive. For the most part,
+these metrics are obtained directly from the NiFi
+ReportingTaskContext API (this author does not purport to have
+in-depth knowledge of the content nor semantics of said metrics).</p>
+<p>Additionally, since Prometheus has an affinity for
+increasing-counter style metrics, the reporting task also provides
+totals oriented metrics (denoted further below).</p>
+<h3 class="western">JVM-Provided Metrics</h3>
+<p>Labels include ‘node’ (i.e. hostname) and ‘instance’
+(i.e., instance moniker).</p>
+<ul>
+	<li/>
+<p>nifi_instance_free_memory: this is a “fuzzy” metric
+	(reminder we are reporting a la JVM Runtime), because the JVM
+	Runtime reports this value based on existing heap size (not maximum
+	JVM sandbox size).</p>
+	<li/>
+<p>nifi_instance_used_memory: less “fuzzy”, in a way, such
+	that this is the total JVM memory minus JVM free memory (where total
+	is existing heap size).</p>
+	<li/>
+<p>nifi_instance_available_memory: Described above – maximum
+	sandbox size minus used memory</p>
+	<li/>
+<p>nifi_instance_cpu_time: Only available using
+	com.sun.management.OperatingSystemMXBean (available on CentOS)</p>
+	<li/>
+<p>nifi_instance_cpu_load: Only available using
+	com.sun.management.OperatingSystemMXBean (available on CentOS)</p>
+	<li/>
+<p>nifi_instance_system_load_average: If
+	com.sun.management.OperatingSystemMXBean is not available.</p>
+</ul>
+<h3 class="western">Processor based Metrics</h3>
+<p style="font-weight: normal">Labels include node, instance, process
+group name, processor name and processor type.</p>
+<p style="font-weight: normal">All the below are an itemization and
+not an explanation, nor an attempt at definition. The values are
+seemingly dependent on the processor code, the version of the
+processor code and the version of the NiFi API framework, while
+mileage appears to vary greatly. For example, the GetFile processor –
+a source processor – provides non-zero values for flow files
+received. In any case…</p>
+<p style="font-weight: normal">The below are passed onward, verbatim,
+from the ReportingTaskContext API:</p>
+<ul>
+	<li/>
+<p style="margin-bottom: 0.04in; font-weight: normal; line-height: 100%">
+	nifi_processor_run_status</p>
+	<li/>
+<p style="margin-bottom: 0.04in; font-weight: normal; line-height: 100%">
+	nifi_processor_active_thread_count</p>
+	<li/>
+<p style="margin-bottom: 0.04in; font-weight: normal; line-height: 100%">
+	nifi_processor_terminated_thread_count</p>
+	<li/>
+<p style="margin-bottom: 0.04in; font-weight: normal; line-height: 100%">
+	nifi_processor_average_lineage_seconds (hard-wired to the seconds
+	unit)</p>
+	<li/>
+<p style="margin-bottom: 0.04in; font-weight: normal; line-height: 100%">
+	nifi_processor_processing_nanos</p>
+	<li/>
+<p style="margin-bottom: 0.04in; font-weight: normal; line-height: 100%">
+	nifi_processor_bytes_read (and total)</p>
+	<li/>
+<p style="margin-bottom: 0.04in; font-weight: normal; line-height: 100%">
+	nifi_processor_bytes_received (and total)</p>
+	<li/>
+<p style="margin-bottom: 0.04in; font-weight: normal; line-height: 100%">
+	nifi_processor_bytes_sent (and total)</p>
+	<li/>
+<p style="margin-bottom: 0.04in; font-weight: normal; line-height: 100%">
+	nifi_processor_bytes_written (and total)</p>
+	<li/>
+<p style="margin-bottom: 0.04in; font-weight: normal; line-height: 100%">
+	nifi_processor_flow_files_received (and total)</p>
+	<li/>
+<p style="margin-bottom: 0.04in; font-weight: normal; line-height: 100%">
+	nifi_processor_flow_files_removed (and total)</p>
+	<li/>
+<p style="margin-bottom: 0.04in; font-weight: normal; line-height: 100%">
+	nifi_processor_flow_files_sent (and total)</p>
+	<li/>
+<p style="margin-bottom: 0.04in; font-weight: normal; line-height: 100%">
+	nifi_processor_input_bytes (and total)</p>
+	<li/>
+<p style="margin-bottom: 0.04in; font-weight: normal; line-height: 100%">
+	nifi_processor_input_count (and total)</p>
+	<li/>
+<p style="margin-bottom: 0.04in; font-weight: normal; line-height: 100%">
+	nifi_processor_output_bytes (and total)</p>
+	<li/>
+<p style="font-weight: normal; line-height: 100%">nifi_processor_output_count
+	(and total)</p>
+</ul>
+<h3 class="western">Queue based Metrics (i.e., connection-status)</h3>
+<p style="font-weight: normal">Reminder that the reference
+implementation accomplishes the <span style="font-style: normal">zero-latency</span>
+processor and connection-status join internally, thereby averting the
+arduous challenge of accomplishing a time-based outer-join being
+imposed upon the Grafana back-end query specification.</p>
+<p style="font-weight: normal">Labels include node, instance, process
+group name, processor name, processor type, queue name and queue size
+(‘input’ or ‘output’).</p>
+<p style="font-weight: normal">The metrics for a NiFi connection
+(AKA, queue) are produced separately for input side and output side.
+Most notably, there may be load balancing involved.</p>
+<p style="font-weight: normal">For our usage of Linear Regression
+calculations, the source of the metrics are the “output queue”
+for which the reported processor is as matching the ‘destination’
+element. In this scenario, queue name is set to ‘input’ (thereby
+matching the queue side). Yes, it’s seemingly confusing. The
+existing naming strategy, itemized below, is consistent, but not
+entirely obvious.</p>
+<ul>
+	<li/>
+<p style="margin-bottom: 0.04in; font-weight: normal; line-height: 100%">
+	nifi_processor_input_queue_bytes_slope</p>
+	<li/>
+<p style="margin-bottom: 0.04in; font-weight: normal; line-height: 100%">
+	nifi_processor_input_queue_bytes_intercept</p>
+	<li/>
+<p style="margin-bottom: 0.04in; font-weight: normal; line-height: 100%">
+	nifi_processor_input_queue_bytes</p>
+	<li/>
+<p style="margin-bottom: 0.04in; font-weight: normal; line-height: 100%">
+	nifi_processor_input_queue_count_slope (i.e., flow file count)</p>
+	<li/>
+<p style="margin-bottom: 0.04in; font-weight: normal; line-height: 100%">
+	nifi_processor_input_queue_count_intercept (i.e., flow file count)</p>
+	<li/>
+<p style="margin-bottom: 0.04in; font-weight: normal; line-height: 100%">
+	nifi_processor_input_queue_count (i.e., flow file count)</p>
+	<li/>
+<p style="margin-bottom: 0.04in; font-weight: normal; line-height: 100%">
+	nifi_processor_output_queue_bytes</p>
+	<li/>
+<p style="margin-bottom: 0.04in; font-weight: normal; line-height: 100%">
+	nifi_processor_output_queue_count (i.e., flow file count)</p>
+	<li/>
+<p style="margin-bottom: 0.04in; font-weight: normal; line-height: 100%">
+	nifi_processor_queue_bytes</p>
+	<li/>
+<p style="font-weight: normal; line-height: 100%">nifi_processor_queue_count
+	(i.e., flow file count)</p>
+</ul>
+<h1 class="western">Primary Node (discussion)</h1>
+<p>There is no programmatic API means, using the ReportingTaskContext
+API, to determine / obtain / report the primary node that the cluster
+has voted / selected (not even extraneously by introspecting the
+Zookeeper registry).</p>
+<p>There is one element that can be extracted using the
+ReportingTaskContext API, namely the process-run-context
+configuration property for “run on primary node”, via:</p>
+<p style="margin-left: 0.49in">ProcessorStatus::getExecutionNode() ==
+ExecutionNode.PRIMARY_NODE</p>
+<p>This designation of primary node is not being reported by our
+ReportingTask. The challenge we face is that of tracing
+connection-status extraneously (taking load balancing configuration
+properties into account along the way).</p>
+<p>Unfortunately, when monitoring data flow to alarm on events of
+interest, knowing the primary node designation could prove useful.
+Without such labeling, we resort to Grafana functions such as “max()”
+and “sum()”, as applied to all nodes in a NiFi instance cluster.
+For example,</p>
+<p style="margin-left: 0.49in">max(nifi_processor_output_queue_count{queue_side=”input”,
+node=~”node1|node2|node3”}</p>
+<p style="font-weight: normal">Note that a slope / intercept based
+alarm specification is not impacted by the lack of primary node
+reporting because a “zero flow” always has a slope of 0
+(typically, slope / intercept alarm specifications alert on “outside
+of range” condition).</p>
+<h1 class="western">Build and Deploy</h1>
+<p style="font-weight: normal">The current reference implementation
+is using the Java-11 JDK and Maven 3.6.1 against Apache NiFi 1.12.1.</p>
+<p style="font-weight: normal">$ mvn clean install # builds the
+dot.nar file, sitting under $base/nar/target</p>
+<p style="font-weight: normal">Recommend setting up a tertiary
+library directory in $NIFI_HOME/conf/nifi.properties and copy the
+build dot.nar file to the tertiary library (and restart the NiFi
+instance, of course).</p>
+<p>END-OF-DOCUMENT</p>
 </body>
 </html>
