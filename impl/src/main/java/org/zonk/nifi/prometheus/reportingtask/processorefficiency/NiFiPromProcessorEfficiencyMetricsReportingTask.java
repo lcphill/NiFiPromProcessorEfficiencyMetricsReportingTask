@@ -51,6 +51,7 @@ import com.google.auto.service.AutoService;
 import org.apache.commons.collections4.queue.CircularFifoQueue;
 import org.apache.commons.math3.stat.regression.SimpleRegression;
 import org.apache.http.HttpEntity;
+import org.apache.http.HttpHost;
 import org.apache.http.HttpResponse;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.conn.ssl.SSLConnectionSocketFactory;
@@ -70,6 +71,7 @@ import org.apache.nifi.annotation.lifecycle.OnShutdown;
 import org.apache.nifi.annotation.lifecycle.OnStopped;
 import org.apache.nifi.annotation.behavior.Restricted;
 import org.apache.nifi.components.PropertyDescriptor;
+import org.apache.nifi.components.Validator;
 import org.apache.nifi.controller.ConfigurationContext;
 import org.apache.nifi.controller.status.ConnectionStatus;
 import org.apache.nifi.controller.status.ProcessGroupStatus;
@@ -159,6 +161,23 @@ public class NiFiPromProcessorEfficiencyMetricsReportingTask extends AbstractRep
         .expressionLanguageSupported(ExpressionLanguageScope.VARIABLE_REGISTRY)
         .build();
 
+   public static final PropertyDescriptor PROXY_HOST = new PropertyDescriptor.Builder()
+        .name("proxy host")
+        .description("Proxy spec in case direct connect is not possible.")
+        .required(false)
+        .addValidator(Validator.VALID)
+        .expressionLanguageSupported(ExpressionLanguageScope.VARIABLE_REGISTRY)
+        .build();
+
+   public static final PropertyDescriptor PROXY_PORT = new PropertyDescriptor.Builder()
+        .name("proxy port")
+        .description("Proxy spec in case direct connect is not possible.")
+        .required(false)
+        .defaultValue("0")
+        .addValidator(StandardValidators.NON_NEGATIVE_INTEGER_VALIDATOR)
+        .expressionLanguageSupported(ExpressionLanguageScope.VARIABLE_REGISTRY)
+        .build();
+
    // There is no regex for this property (by design).
    public static final PropertyDescriptor PROCESSOR_TYPE_FILTER = new PropertyDescriptor.Builder()
         .name("Processor Type Filter")
@@ -244,6 +263,8 @@ public class NiFiPromProcessorEfficiencyMetricsReportingTask extends AbstractRep
       props.add(PROCESSOR_NAME_FILTER);
       props.add(PROCESSOR_TYPE_FILTER);
       props.add(PROM_ENDPOINT_URL);
+      props.add(PROXY_HOST);
+      props.add(PROXY_PORT);
       props.add(SSL_CONTEXT);
       properties = Collections.unmodifiableList(props);
    }
@@ -259,6 +280,18 @@ public class NiFiPromProcessorEfficiencyMetricsReportingTask extends AbstractRep
     * output directory where metrics files are placed
     */
    protected String promUrl = null;
+
+   /**
+    * If employed, if we can't connect to the prometheus collector directly,
+    * we'll need a proxy host / port specification
+    */
+   protected String proxyHost = null;
+   
+   /**
+    * If employed, if we can't connect to the prometheus collector directly,
+    * we'll need a proxy host / port specification
+    */
+   protected int proxyPort = 0;
 
    /**
     * Initially, the starting process group to begin traversal, as configured
@@ -384,6 +417,8 @@ public class NiFiPromProcessorEfficiencyMetricsReportingTask extends AbstractRep
          numTrendSamples = context.getProperty(NUM_TREND_SAMPLES).asInteger();
          site = context.getProperty(PROCESSOR_SITE).evaluateAttributeExpressions().getValue();
          promUrl = context.getProperty(PROM_ENDPOINT_URL).evaluateAttributeExpressions().getValue();
+         proxyHost = context.getProperty(PROXY_HOST).evaluateAttributeExpressions().getValue();
+         proxyPort = context.getProperty(PROXY_PORT).evaluateAttributeExpressions().asInteger();
          process_group_filter = context.getProperty(PROCESS_GROUP_FILTER).evaluateAttributeExpressions().getValue();
          type = context.getProperty(PROCESSOR_TYPE_FILTER).evaluateAttributeExpressions().getValue();
          name_expression = context.getProperty(PROCESSOR_NAME_FILTER).evaluateAttributeExpressions().getValue();
@@ -640,6 +675,11 @@ public class NiFiPromProcessorEfficiencyMetricsReportingTask extends AbstractRep
                      SSLContext sslContext = createSSLContext(sslContextService);
                      final SSLConnectionSocketFactory sslsf = new SSLConnectionSocketFactory(sslContext);
                      httpClientBuilder = httpClientBuilder.setSSLSocketFactory(sslsf);
+                  }
+                  if (proxyHost != null && !proxyHost.isEmpty() && proxyPort > 0)
+                  {
+                     HttpHost proxy = new HttpHost(proxyHost, proxyPort);
+                     httpClientBuilder.setProxy(proxy);
                   }
                   CloseableHttpClient httpClient = httpClientBuilder.build();
                   HttpPost httpPost = new HttpPost(url.toString());
